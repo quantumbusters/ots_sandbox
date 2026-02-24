@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TLS Regression PCAP Webhook Payload",
+  "description": "POSTed to OFFSITE_WEBHOOK_URL when a run completes and PCAPs are ready",
+  "type": "object",
+  "required": ["run_id", "timestamp", "pcap_files"],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "description": "8-char unique run identifier",
+      "example": "a3f8bc12"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO-8601 time the webhook was dispatched"
+    },
+    "note": {
+      "type": "string",
+      "description": "Human-readable advisory"
+    },
+    "pcap_files": {
+      "type": "array",
+      "description": "One entry per (runner × ip_family) combination",
+      "items": {
+        "type": "object",
+        "required": ["key", "blob_name", "sas_url", "sas_expiry", "size_bytes"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Logical identifier: {run_id}-{runner}-{ip_family}.pcap",
+            "example": "a3f8bc12-curl-ipv4.pcap"
+          },
+          "blob_name": {
+            "type": "string",
+            "description": "Full blob path in pcap-staging container",
+            "example": "a3f8bc12/a3f8bc12-curl-ipv4.pcap.gz"
+          },
+          "sas_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Pre-signed Azure Blob SAS URL — valid for 24h from dispatch time. Fetch before sas_expiry."
+          },
+          "sas_expiry": {
+            "type": "string",
+            "format": "date-time",
+            "description": "UTC expiry of the SAS URL"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "description": "Compressed .pcap.gz size in bytes"
+          }
+        }
+      },
+      "examples": [
+        {
+          "key":         "a3f8bc12-curl-ipv4.pcap",
+          "blob_name":   "a3f8bc12/a3f8bc12-curl-ipv4.pcap.gz",
+          "sas_url":     "https://satlsXXXX.blob.core.windows.net/pcap-staging/a3f8bc12/a3f8bc12-curl-ipv4.pcap.gz?sv=2022-11-02&...",
+          "sas_expiry":  "2026-02-25T14:30:00Z",
+          "size_bytes":  2457600
+        }
+      ]
+    }
+  }
+}

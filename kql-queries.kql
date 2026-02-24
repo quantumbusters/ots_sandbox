@@ -1,0 +1,75 @@
+// ============================================================
+// Paste these into Log Analytics > Logs
+// Table: TLSTestResults_CL
+// ============================================================
+
+
+// 1. Run summary — pass/fail by TLS version and IP family
+TLSTestResults_CL
+| where RunId_s == "<YOUR_RUN_ID>"    // omit for all runs
+| summarize
+    Total   = count(),
+    Passed  = countif(CurlExitCode_d == 0),
+    Failed  = countif(CurlExitCode_d != 0),
+    AvgMs   = avg(DurationMs_d)
+  by TlsVersion_s, IpVersion_s, Runner_s
+| order by TlsVersion_s, IpVersion_s
+
+
+// 2. Sites that failed on TLS 1.0 or 1.1 (expected — baseline)
+TLSTestResults_CL
+| where TlsVersion_s in ("TLS1.0", "TLS1.1")
+  and CurlExitCode_d != 0
+| project TimeGenerated, TargetHost_s, TlsVersion_s, IpVersion_s,
+          CurlExitCode_d, ErrorDetail_s
+| order by TimeGenerated desc
+
+
+// 3. Sites that ACCEPTED TLS 1.0 or 1.1 (security concern)
+TLSTestResults_CL
+| where TlsVersion_s in ("TLS1.0", "TLS1.1")
+  and CurlExitCode_d == 0
+  and HttpStatus_d >= 200
+| project TimeGenerated, TargetHost_s, TlsVersion_s, IpVersion_s, HttpStatus_d
+| order by TargetHost_s
+
+
+// 4. IPv6 reachability gaps — sites reachable on IPv4 but not IPv6
+let ipv4ok = TLSTestResults_CL
+    | where IpVersion_s == "IPv4" and TlsVersion_s == "TLS1.2" and CurlExitCode_d == 0
+    | project TargetHost_s;
+let ipv6fail = TLSTestResults_CL
+    | where IpVersion_s == "IPv6" and TlsVersion_s == "TLS1.2" and CurlExitCode_d != 0
+    | project TargetHost_s, ErrorDetail_s;
+ipv4ok
+| join kind=inner ipv6fail on TargetHost_s
+| distinct TargetHost_s, ErrorDetail_s
+
+
+// 5. curl vs Chrome divergence — same host passes one but fails the other
+let curlPass   = TLSTestResults_CL
+    | where Runner_s == "curl"   and CurlExitCode_d == 0
+    | project TargetHost_s, IpVersion_s;
+let chromeFail = TLSTestResults_CL
+    | where Runner_s == "chrome" and CurlExitCode_d != 0
+    | project TargetHost_s, IpVersion_s, ErrorDetail_s;
+curlPass
+| join kind=inner chromeFail on TargetHost_s, IpVersion_s
+| project TargetHost_s, IpVersion_s, ErrorDetail_s
+
+
+// 6. Trend — failure rate over time (for continuous monitoring)
+TLSTestResults_CL
+| summarize
+    Total  = count(),
+    Failed = countif(CurlExitCode_d != 0)
+  by bin(TimeGenerated, 1h), TlsVersion_s, Runner_s
+| extend FailurePct = round(100.0 * Failed / Total, 1)
+| order by TimeGenerated desc
+
+
+// 7. Slowest responding hosts (p95 latency)
+TLSTestResults_CL
+| where CurlExitCode_d == 0
+| summarize p95 = percentile(DurationMs_d, 95) by TargetHost_s
+| top 20 by p95 desc
